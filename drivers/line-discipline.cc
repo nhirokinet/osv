@@ -21,11 +21,21 @@ void LineDiscipline::read(struct uio *uio, int ioflag) {
         _readers.push_back(sched::thread::current());
         sched::thread::wait_until(_mutex, [&] { return !_read_queue.empty(); });
         _readers.remove(sched::thread::current());
-        while (uio->uio_resid && !_read_queue.empty()) {
+
+        static int eof = 0;
+        while (uio->uio_resid && !_read_queue.empty() && !eof) {
             struct iovec *iov = uio->uio_iov;
             auto n = std::min(_read_queue.size(), iov->iov_len);
             for (size_t i = 0; i < n; ++i) {
-                static_cast<char*>(iov->iov_base)[i] = _read_queue.front();
+                char tmp = _read_queue.front();
+
+                if (tmp == '\0') {
+                    n = i;
+                    eof = 1;
+                    break;
+                }
+
+                static_cast<char*>(iov->iov_base)[i] = tmp;
                 _read_queue.pop();
             }
 
@@ -79,12 +89,55 @@ static inline void echo(console_driver *driver, const char *str, size_t len)
 
 void LineDiscipline::read_poll(console_driver *driver)
 {
+    static int eof_done = 0;
+
+    if (eof_done) {
+        if (_read_queue.empty()) {
+            _read_queue.push('\0');
+        }
+        return;
+    }
+
     while (true) {
         std::lock_guard<mutex> lock(_mutex);
+
+        if (eof_done) {
+            if (_line_buffer.empty()) {
+                _line_buffer.push_back('\0');
+            }
+
+            while (!_line_buffer.empty()) {
+                _read_queue.push(_line_buffer.front()); _line_buffer.pop_front();
+            }
+
+            for (auto t : _readers) {
+                t->wake();
+            }
+            if (_fp) {
+                poll_wake(_fp, POLLIN);
+            }
+        }
+
         sched::thread::wait_until(_mutex, [&] { return driver->input_ready(); });
         char c = driver->readch();
         if (c == 0)
             continue;
+
+        if (c == 4) {
+            eof_done = 1;
+            _line_buffer.push_back('\0');
+            while (!_line_buffer.empty()) {
+                _read_queue.push(_line_buffer.front()); _line_buffer.pop_front();
+            }
+            for (auto t : _readers) {
+                t->wake();
+            }
+            if (_fp) {
+                poll_wake(_fp, POLLIN);
+            }
+            continue;
+        }
+
 
         if (c == '\r' && _tio->c_iflag & ICRNL) {
             c = '\n';
