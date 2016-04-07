@@ -173,7 +173,7 @@ void LineDiscipline::read_poll(console_driver *driver)
                 if (_line_buffer.empty()) {
                     continue; // do nothing, and echo nothing
                 }
-                char e = _line_buffer.back();
+                _line_buffer.back();
                 _line_buffer.pop_back();
                 if (_tio->c_lflag && ECHO) {
                     continue; // already echoed
