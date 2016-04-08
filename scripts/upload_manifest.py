@@ -1,6 +1,10 @@
 #!/usr/bin/python
 
-import os, optparse, io, subprocess, socket, threading, stat, sys, re
+import os, optparse, io, subprocess, socket, threading, stat, sys
+try:
+    import configparser
+except ImportError:
+    import ConfigParser as configparser
 
 try:
     import StringIO
@@ -54,23 +58,12 @@ def unsymlink(f):
     except Exception:
         return f
 
-# Reads the manifest and returns it as a list of pairs (guestpath, hostpath).
-def read_manifest(fn):
-    ret = []
-    comment = re.compile("^[ \t]*(|#.*|\[manifest])$")
-    with open(fn, 'r') as f:
-        for line in f:
-            line = line.rstrip();
-            if comment.match(line): continue
-            components = line.split(": ", 2)
-            guestpath = components[0].strip();
-            hostpath = components[1].strip()
-            ret.append((guestpath, hostpath))
-    return ret
-
 def upload(osv, manifest, depends):
-    files = list(expand(manifest))
-    files = [(x, unsymlink(y % defines)) for (x, y) in files]
+    files = dict([(f, manifest.get('manifest', f, vars=defines))
+                  for f in manifest.options('manifest')])
+
+    files = list(expand(files.items()))
+    files = [(x, unsymlink(y)) for (x, y) in files]
 
     # Wait for the guest to come up and tell us it's listening
     while True:
@@ -188,7 +181,9 @@ def main():
     depends = StringIO()
     if options.depends:
         depends = file(options.depends, 'w')
-    manifest = read_manifest(options.manifest)
+    manifest = configparser.SafeConfigParser()
+    manifest.optionxform = str # avoid lowercasing
+    manifest.read(options.manifest)
 
     depends.write('%s: \\\n' % (options.output,))
 
@@ -199,6 +194,7 @@ def main():
 
     osv.wait()
 
+    # Disable ZFS compression; it stops taking effect from this point on.
     osv = subprocess.Popen('cd ../..; scripts/run.py -m 512 -c1 -i %s -u -s -e "--norandom --noinit /zfs.so set compression=off osv"' % image_path, shell=True, stdout=subprocess.PIPE)
     osv.wait()
 
