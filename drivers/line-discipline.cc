@@ -18,11 +18,11 @@ LineDiscipline::LineDiscipline(const termios *tio)
 
 void LineDiscipline::read(struct uio *uio, int ioflag) {
     WITH_LOCK(_mutex) {
+        static int eof = 0;
         _readers.push_back(sched::thread::current());
-        sched::thread::wait_until(_mutex, [&] { return !_read_queue.empty(); });
+        sched::thread::wait_until(_mutex, [&] { return eof || !_read_queue.empty(); });
         _readers.remove(sched::thread::current());
 
-        static int eof = 0;
         while (uio->uio_resid && !_read_queue.empty() && !eof) {
             struct iovec *iov = uio->uio_iov;
             auto n = std::min(_read_queue.size(), iov->iov_len);
