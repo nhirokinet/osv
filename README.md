@@ -1,3 +1,7 @@
+# This repository
+
+This is OSv with a little change for [fuzetsu](https://github.com/nhirokinet/fuzetsu).
+
 # OSv
 
 OSv is a new open-source operating system for virtual-machines.
